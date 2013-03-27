@@ -118,16 +118,17 @@ def parse_html(html, providers, urlize_all=True, handler=full_handler, block_han
     if not BeautifulSoup:
         raise Exception('Unable to parse HTML, please install BeautifulSoup or use the text parser')
 
-    soup = BeautifulSoup(html)
+    soup = BeautifulSoup(html, convertEntities=BeautifulSoup.HTML_ENTITIES)
 
     for url in soup.findAll(text=re.compile(url_re)):
         if not _inside_skip(url):
             if _is_standalone(url):
                 url_handler = handler
             else:
-                url_handler = inline_handler
+                url_handler = block_handler
 
-            replacement = parse_text_full(str(url), providers, urlize_all, url_handler, **params)
+            url_unescaped = url.string
+            replacement = parse_text_full(url_unescaped, providers, urlize_all, url_handler, **params)
             url.replaceWith(BeautifulSoup(replacement))
 
     return unicode(soup)
@@ -136,7 +137,7 @@ def extract_html(html, providers, **params):
     if not BeautifulSoup:
         raise Exception('Unable to parse HTML, please install BeautifulSoup or use the text parser')
 
-    soup = BeautifulSoup(html)
+    soup = BeautifulSoup(html, convertEntities=BeautifulSoup.HTML_ENTITIES)
     all_urls = set()
     urls = []
     extracted_urls = {}
