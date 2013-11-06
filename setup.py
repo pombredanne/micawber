@@ -7,7 +7,7 @@ f.close()
 
 setup(
     name='micawber',
-    version="0.2.6",
+    version="0.3.0",
     description='a small library for extracting rich content from urls',
     long_description=readme,
     author='Charles Leifer',
@@ -31,6 +31,10 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
+        'Programming Language :: Python :: 2.6',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3.3',
         'Framework :: Django',
     ],
     test_suite='runtests.runtests',

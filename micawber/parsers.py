@@ -1,12 +1,18 @@
 import re
+from .compat import text_type
 try:
     import simplejson as json
 except ImportError:
     import json
 try:
     from BeautifulSoup import BeautifulSoup
+    bs_kwargs = {'convertEntities': BeautifulSoup.HTML_ENTITIES}
 except ImportError:
-    BeautifulSoup = None
+    try:
+        from bs4 import BeautifulSoup
+        bs_kwargs = {} # BS4 converts entities by default
+    except ImportError:
+        BeautifulSoup = None
 
 from micawber.exceptions import ProviderException
 
@@ -48,7 +54,7 @@ def extract(text, providers, **params):
     for url in re.findall(url_re, text):
         if url in all_urls:
             continue
-        
+
         all_urls.add(url)
         urls.append(url)
         try:
@@ -87,7 +93,7 @@ def parse_text_full(text, providers, urlize_all=True, handler=full_handler, **pa
 
         # iterate through the rest of the matches offsetting their indices
         # based on the difference between replacement/original
-        for j in xrange(indx + 1, len(matches)):
+        for j in range(indx + 1, len(matches)):
             matches[j][0] += difference
             matches[j][1] += difference
 
@@ -118,7 +124,7 @@ def parse_html(html, providers, urlize_all=True, handler=full_handler, block_han
     if not BeautifulSoup:
         raise Exception('Unable to parse HTML, please install BeautifulSoup or use the text parser')
 
-    soup = BeautifulSoup(html, convertEntities=BeautifulSoup.HTML_ENTITIES)
+    soup = BeautifulSoup(html, **bs_kwargs)
 
     for url in soup.findAll(text=re.compile(url_re)):
         if not _inside_skip(url):
@@ -131,13 +137,13 @@ def parse_html(html, providers, urlize_all=True, handler=full_handler, block_han
             replacement = parse_text_full(url_unescaped, providers, urlize_all, url_handler, **params)
             url.replaceWith(BeautifulSoup(replacement))
 
-    return unicode(soup)
+    return text_type(soup)
 
 def extract_html(html, providers, **params):
     if not BeautifulSoup:
         raise Exception('Unable to parse HTML, please install BeautifulSoup or use the text parser')
 
-    soup = BeautifulSoup(html, convertEntities=BeautifulSoup.HTML_ENTITIES)
+    soup = BeautifulSoup(html, **bs_kwargs)
     all_urls = set()
     urls = []
     extracted_urls = {}
@@ -145,12 +151,12 @@ def extract_html(html, providers, **params):
     for url in soup.findAll(text=re.compile(url_re)):
         if _inside_skip(url):
             continue
-    
-        block_all, block_ext = extract(unicode(url), providers, **params)
+
+        block_all, block_ext = extract(text_type(url), providers, **params)
         for extracted_url in block_all:
             if extracted_url in all_urls:
                 continue
-            
+
             extracted_urls.update(block_ext)
             urls.append(extracted_url)
             all_urls.add(extracted_url)
