@@ -2,13 +2,27 @@ import hashlib
 import pickle
 import re
 import socket
-from .compat import urlencode, Request, urlopen, URLError, HTTPError, get_charset
+import ssl
+from .compat import get_charset
+from .compat import HTTPError
+from .compat import OrderedDict
+from .compat import Request
+from .compat import urlencode
+from .compat import URLError
+from .compat import urlopen
 try:
     import simplejson as json
+    try:
+        InvalidJson = json.JSONDecodeError
+    except AttributeError:
+        InvalidJson = ValueError
 except ImportError:
     import json
+    InvalidJson = ValueError
 
-from micawber.exceptions import ProviderException, ProviderNotFoundException
+from micawber.exceptions import InvalidResponseException
+from micawber.exceptions import ProviderException
+from micawber.exceptions import ProviderNotFoundException
 
 
 class Provider(object):
@@ -30,6 +44,8 @@ class Provider(object):
         except HTTPError:
             return False
         except socket.timeout:
+            return False
+        except ssl.SSLError:
             return False
         return resp
 
@@ -55,9 +71,20 @@ class Provider(object):
             raise ProviderException('Error fetching "%s"' % endpoint_url)
 
     def handle_response(self, response, url):
-        json_data = json.loads(response)
+        try:
+            json_data = json.loads(response)
+        except InvalidJson as exc:
+            try:
+                msg = exc.message
+            except AttributeError:
+                msg = exc.args[0]
+            raise InvalidResponseException(msg)
+
         if 'url' not in json_data:
             json_data['url'] = url
+        if 'title' not in json_data:
+            json_data['title'] = json_data['url']
+
         return json_data
 
 
@@ -93,17 +120,17 @@ def fetch(request):
 
 class ProviderRegistry(object):
     def __init__(self, cache=None):
-        self._registry = {}
+        self._registry = OrderedDict()
         self.cache = cache
 
     def register(self, regex, provider):
         self._registry[regex] = provider
 
     def unregister(self, regex):
-        del(self._registry[regex])
+        del self._registry[regex]
 
     def __iter__(self):
-        return iter(self._registry.items())
+        return iter(reversed(list(self._registry.items())))
 
     def provider_for_url(self, url):
         for regex, provider in self:
@@ -118,9 +145,9 @@ class ProviderRegistry(object):
         raise ProviderNotFoundException('Provider not found for "%s"' % url)
 
 
-def bootstrap_basic(cache=None):
+def bootstrap_basic(cache=None, registry=None):
     # complements of oembed.com#section7
-    pr = ProviderRegistry(cache)
+    pr = registry or ProviderRegistry(cache)
 
     # b
     pr.register('http://blip.tv/\S+', Provider('http://blip.tv/oembed'))
@@ -134,8 +161,8 @@ def bootstrap_basic(cache=None):
     pr.register('https?://(www\.)?dailymotion\.com/\S+', Provider('http://www.dailymotion.com/services/oembed'))
 
     # f
-    pr.register('http://\S*?flickr.com/\S+', Provider('http://www.flickr.com/services/oembed/'))
-    pr.register('http://flic\.kr/\S*', Provider('http://www.flickr.com/services/oembed/'))
+    pr.register('https?://\S*?flickr.com/\S+', Provider('https://www.flickr.com/services/oembed/'))
+    pr.register('https?://flic\.kr/\S*', Provider('https://www.flickr.com/services/oembed/'))
     pr.register('https?://(www\.)?funnyordie\.com/videos/\S+', Provider('http://www.funnyordie.com/oembed'))
 
     # g
@@ -177,7 +204,7 @@ def bootstrap_basic(cache=None):
     pr.register('https?://(www\.)?scribd\.com/\S*', Provider('http://www.scribd.com/services/oembed'))
 
     # t
-    pr.register('https?://(www\.)?twitter.com/\S+/status(es)?/\S+', Provider('http://api.twitter.com/1/statuses/oembed.json'))
+    pr.register('https?://(www\.)?twitter.com/\S+/status(es)?/\S+', Provider('https://api.twitter.com/1/statuses/oembed.json'))
 
     # v
     pr.register('http://\S*.viddler.com/\S*', Provider('http://lab.viddler.com/services/oembed/'))
@@ -185,7 +212,8 @@ def bootstrap_basic(cache=None):
     pr.register('https://vimeo.com/\S+', Provider('https://vimeo.com/api/oembed.json'))
 
     # y
-    pr.register('https?://(\S*.)?youtu(\.be/|be\.com/watch)\S+', Provider('http://www.youtube.com/oembed'))
+    pr.register('http://(\S*.)?youtu(\.be/|be\.com/watch)\S+', Provider('http://www.youtube.com/oembed'))
+    pr.register('https://(\S*.)?youtu(\.be/|be\.com/watch)\S+', Provider('http://www.youtube.com/oembed?scheme=https&'))
     pr.register('http://(\S*\.)?yfrog\.com/\S*', Provider('http://www.yfrog.com/api/oembed'))
 
     # w
@@ -195,11 +223,11 @@ def bootstrap_basic(cache=None):
     return pr
 
 
-def bootstrap_embedly(cache=None, **params):
+def bootstrap_embedly(cache=None, registry=None, **params):
     endpoint = 'http://api.embed.ly/1/oembed'
     schema_url = 'http://api.embed.ly/1/services/python'
 
-    pr = ProviderRegistry(cache)
+    pr = registry or ProviderRegistry(cache)
 
     # fetch the schema
     contents = fetch(schema_url)
@@ -211,11 +239,11 @@ def bootstrap_embedly(cache=None, **params):
     return pr
 
 
-def bootstrap_noembed(cache=None, **params):
+def bootstrap_noembed(cache=None, registry=None, **params):
     endpoint = 'http://noembed.com/embed'
     schema_url = 'http://noembed.com/providers'
 
-    pr = ProviderRegistry(cache)
+    pr = registry or ProviderRegistry(cache)
 
     # fetch the schema
     contents = fetch(schema_url)
@@ -227,16 +255,19 @@ def bootstrap_noembed(cache=None, **params):
     return pr
 
 
-def bootstrap_oembedio(cache=None, **params):
+def bootstrap_oembedio(cache=None, registry=None, **params):
     endpoint = 'http://oembed.io/api'
     schema_url = 'http://oembed.io/providers'
 
-    pr = ProviderRegistry(cache)
+    pr = registry or ProviderRegistry(cache)
 
     # fetch the schema
     contents = fetch(schema_url)
     json_data = json.loads(contents)
 
     for provider_meta in json_data:
-        pr.register(provider_meta['s'], Provider(endpoint, **params))
+        regex = provider_meta['s']
+        if not regex.startswith('http'):
+            regex = 'https?://(?:www\.)?' + regex
+        pr.register(regex, Provider(endpoint, **params))
     return pr
