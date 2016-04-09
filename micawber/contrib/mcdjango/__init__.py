@@ -1,7 +1,9 @@
+from collections import Callable
+from importlib import import_module
+
 from django import template
 from django.conf import settings
 from django.template.loader import render_to_string
-from django.utils.importlib import import_module
 from django.utils.safestring import mark_safe
 
 from micawber.compat import string_types
@@ -18,29 +20,37 @@ def _load_from_module(path):
 PROVIDERS = getattr(settings, 'MICAWBER_PROVIDERS', 'micawber.contrib.mcdjango.providers.bootstrap_basic')
 
 providers = _load_from_module(PROVIDERS)
-if callable(providers):
+if isinstance(providers, Callable):
     providers = providers()
 
 
 register = template.Library()
 
 def django_template_handler(url, response_data, **params):
-    return mark_safe(render_to_string('micawber/%s.html' % response_data['type'], template.Context(dict(
-        params=params,
-        response=response_data,
-        url=url,
-    ))).strip())
+    names = (
+        response_data.get('provider_name'),
+        response_data['type'],
+    )
+    template_names = ['micawber/%s.html' % name for name in names if name]
+    return mark_safe(
+        render_to_string(
+            template_names,
+            template.Context({
+                'params': params,
+                'response': response_data,
+                'url': url,
+            })).strip())
 
 def fix_width_height(width_height, params):
     if width_height:
         if 'x' in width_height:
-            params['maxwidth'], params['maxheight'] = map(int, width_height.split('x'))
+            params['maxwidth'], params['maxheight'] = [int(n) for n in  width_height.split('x')]
         else:
             params['maxwidth'] = int(width_height)
             params.pop('maxheight', None)
     return params
 
-def extension(filter_name, providers=providers, urlize_all=True, html=False, handler=django_template_handler, 
+def extension(filter_name, providers=providers, urlize_all=True, html=False, handler=django_template_handler,
               block_handler=inline_handler, text_fn=parse_text, html_fn=parse_html, **kwargs):
     if html:
         fn = html_fn
